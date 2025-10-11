@@ -1,15 +1,21 @@
 package akin.city_card.buscard.service.concretes;
 
+import akin.city_card.admin.exceptions.AdminNotFoundException;
+import akin.city_card.admin.model.Admin;
+import akin.city_card.admin.repository.AdminRepository;
+import akin.city_card.buscard.core.request.CreateCardPricingRequest;
 import akin.city_card.buscard.core.request.RegisterCardRequest;
 import akin.city_card.buscard.core.response.BusCardResponse;
 import akin.city_card.buscard.exceptions.*;
-import akin.city_card.buscard.model.BusCard;
-import akin.city_card.buscard.model.CardStatus;
-import akin.city_card.buscard.model.CardType;
-import akin.city_card.buscard.model.SubscriptionInfo;
+import akin.city_card.buscard.model.*;
 import akin.city_card.buscard.repository.BusCardRepository;
+import akin.city_card.buscard.repository.CardPricingRepository;
 import akin.city_card.buscard.service.abstracts.BusCardService;
+import akin.city_card.response.ResponseMessage;
+import akin.city_card.user.model.User;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -29,6 +35,7 @@ import java.security.KeyStore;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Base64;
 import java.util.HashMap;
@@ -37,6 +44,9 @@ import java.util.Map;
 
 @Service
 public class BusCardManager implements BusCardService {
+
+    @Autowired
+    private CardPricingRepository cardPricingRepository;
 
     private final SecureRandom secureRandom = new SecureRandom();
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -54,6 +64,8 @@ public class BusCardManager implements BusCardService {
 
     // masterKey cached in memory (SecretKey) — but will be loaded from keystore on startup
     private volatile SecretKey masterKey;
+    @Autowired
+    private AdminRepository adminRepository;
 
     public BusCardManager(
             BusCardRepository busCardRepository,
@@ -357,7 +369,8 @@ public class BusCardManager implements BusCardService {
 
             return ResponseEntity.ok(finalResp);
 
-        } catch (InvalidTopUpAmountException | InactiveCardException | CardExpiredException | BusCardNotFoundException e) {
+        } catch (InvalidTopUpAmountException | InactiveCardException | CardExpiredException |
+                 BusCardNotFoundException e) {
             return ResponseEntity.status(400).body(Map.of("error", e.getMessage()));
         } catch (DataKeyNotFoundException | InvalidDataKeyException e) {
             return ResponseEntity.status(500).body(Map.of("error", "Şifreleme anahtarı hatası: " + e.getMessage()));
@@ -517,6 +530,22 @@ public class BusCardManager implements BusCardService {
         }
     }
 
+    @Override
+    @Transactional
+    public ResponseMessage createCardPricing(CreateCardPricingRequest createCardPricingRequest, String username) throws AdminNotFoundException {
+        Admin yusuf = adminRepository.findByUserNumber(username);
+        if (yusuf == null) {
+            throw new AdminNotFoundException();
+        }
+        CardPricing cardPricing = new CardPricing();
+        cardPricing.setCardType(createCardPricingRequest.getCardType());
+        cardPricing.setPrice(createCardPricingRequest.getPrice());
+        cardPricing.setCreatedAt(LocalDateTime.now());
+        cardPricing.setUpdatedAt(LocalDateTime.now());
+        cardPricingRepository.save(cardPricing);
+        return new ResponseMessage("Kart fiyatlandırma başarılı", true);
+    }
+
 
     /**
      * DB'deki encryptedDataKey'i master key ile çözerek kullanıma hazır dataKey döndürür.
@@ -539,7 +568,8 @@ public class BusCardManager implements BusCardService {
 
     /**
      * Master key ile wrap edilmiş dataKey'i çözmek için basit AES-GCM unwrap örneği.
-     * @param masterKey uygulamanın master key'i (AES-128/256)
+     *
+     * @param masterKey      uygulamanın master key'i (AES-128/256)
      * @param wrappedDataKey DB'den alınan şifrelenmiş key
      * @return plain data key
      */

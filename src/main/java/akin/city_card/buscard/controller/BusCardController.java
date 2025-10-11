@@ -1,9 +1,14 @@
 package akin.city_card.buscard.controller;
 
+import akin.city_card.admin.exceptions.AdminNotFoundException;
+import akin.city_card.buscard.core.request.CreateCardPricingRequest;
 import akin.city_card.buscard.core.request.RegisterCardRequest;
 import akin.city_card.buscard.service.abstracts.BusCardService;
+import akin.city_card.response.ResponseMessage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -67,5 +72,11 @@ public class BusCardController {
         }
     }
 
+    //CRUD create -update delete temel işlemler
+    @PostMapping("/card-pricing")
+    public ResponseMessage createCardPricing(@AuthenticationPrincipal UserDetails userDetails, @RequestBody CreateCardPricingRequest createCardPricingRequest) throws AdminNotFoundException {
+        return busCardService.createCardPricing(createCardPricingRequest,userDetails.getUsername());
+
+    }
 
 }
