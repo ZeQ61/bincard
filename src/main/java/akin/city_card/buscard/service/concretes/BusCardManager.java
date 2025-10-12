@@ -546,6 +546,11 @@ public class BusCardManager implements BusCardService {
         return new ResponseMessage("Kart fiyatlandırma başarılı", true);
     }
 
+    @Override
+    public ResponseEntity<?> cardVisa(Map<String, Object> request) {
+        return null;
+    }
+
 
     /**
      * DB'deki encryptedDataKey'i master key ile çözerek kullanıma hazır dataKey döndürür.

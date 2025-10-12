@@ -9,10 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.util.Map;
@@ -54,7 +51,21 @@ public class BusCardController {
 
     }
 
-    // get-on / biniş işlemi
+    @PostMapping("/card-visa")
+    public ResponseEntity<?> cardVisa(@RequestBody Map<String, Object> request) {
+        return busCardService.cardVisa(request);
+    }
+
+    @PostMapping("/card-blocked")
+    public ResponseEntity<?> cardBlocked(@RequestBody Map<String, Object> request) {
+        return busCardService.cardBlocked(request);
+    }
+
+    @DeleteMapping("/card-blocked")
+    public ResponseEntity<?> deleteCardBlocked(@RequestBody Map<String, String> request) {
+        return busCardService.deleteCardBlocked(request);
+    }
+
     @PostMapping("/get-on")
     public ResponseEntity<?> getOn(@RequestBody Map<String, String> request) {
         try {
@@ -75,7 +86,7 @@ public class BusCardController {
     //CRUD create -update delete temel işlemler
     @PostMapping("/card-pricing")
     public ResponseMessage createCardPricing(@AuthenticationPrincipal UserDetails userDetails, @RequestBody CreateCardPricingRequest createCardPricingRequest) throws AdminNotFoundException {
-        return busCardService.createCardPricing(createCardPricingRequest,userDetails.getUsername());
+        return busCardService.createCardPricing(createCardPricingRequest, userDetails.getUsername());
 
     }
 

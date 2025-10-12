@@ -7,6 +7,7 @@ import akin.city_card.response.ResponseMessage;
 import org.springframework.http.ResponseEntity;
 
 import java.math.BigDecimal;
+import java.util.Map;
 
 public interface BusCardService {
     ResponseEntity<?> registerCard(RegisterCardRequest req);
@@ -18,4 +19,11 @@ public interface BusCardService {
     ResponseEntity<?> getOn(String uid);
 
     ResponseMessage createCardPricing(CreateCardPricingRequest createCardPricingRequest, String username) throws AdminNotFoundException;
+
+    ResponseEntity<?> cardVisa(Map<String, Object> request);
+
+    ResponseEntity<?> deleteCardBlocked(Map<String, String> request);
+
+    ResponseEntity<?> cardBlocked(Map<String, Object> request);
+
 }
