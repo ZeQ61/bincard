@@ -10,4 +10,6 @@ import java.util.Optional;
 @Repository
 public interface CardPricingRepository extends JpaRepository<CardPricing, Long> {
 
+    Optional<CardPricing> findByCardType(CardType type);
+
 }

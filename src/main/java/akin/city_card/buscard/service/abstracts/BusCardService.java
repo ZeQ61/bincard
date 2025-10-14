@@ -1,9 +1,16 @@
 package akin.city_card.buscard.service.abstracts;
 
 import akin.city_card.admin.exceptions.AdminNotFoundException;
+import akin.city_card.bus.exceptions.InsufficientBalanceException;
 import akin.city_card.buscard.core.request.CreateCardPricingRequest;
 import akin.city_card.buscard.core.request.RegisterCardRequest;
+import akin.city_card.buscard.exceptions.CardPricingNotFoundException;
+import akin.city_card.buscard.exceptions.ExpiredQrCodeException;
+import akin.city_card.buscard.exceptions.InvalidQrCodeException;
 import akin.city_card.response.ResponseMessage;
+import akin.city_card.security.exception.UserNotFoundException;
+import akin.city_card.wallet.exceptions.WalletNotActiveException;
+import akin.city_card.wallet.exceptions.WalletNotFoundException;
 import org.springframework.http.ResponseEntity;
 
 import java.math.BigDecimal;
@@ -26,4 +33,7 @@ public interface BusCardService {
 
     ResponseEntity<?> cardBlocked(Map<String, Object> request);
 
+    byte[] generateQrCode(String username) throws UserNotFoundException, WalletNotFoundException, WalletNotActiveException, CardPricingNotFoundException, InsufficientBalanceException;
+
+    ResponseMessage verifyQrToken(String qrToken) throws InvalidQrCodeException, ExpiredQrCodeException, UserNotFoundException, WalletNotFoundException, InsufficientBalanceException;
 }

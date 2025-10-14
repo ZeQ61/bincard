@@ -1,8 +1,10 @@
 package akin.city_card.buscard.service.concretes;
 
+
 import akin.city_card.admin.exceptions.AdminNotFoundException;
 import akin.city_card.admin.model.Admin;
 import akin.city_card.admin.repository.AdminRepository;
+import akin.city_card.bus.exceptions.InsufficientBalanceException;
 import akin.city_card.buscard.core.request.CreateCardPricingRequest;
 import akin.city_card.buscard.core.request.RegisterCardRequest;
 import akin.city_card.buscard.core.response.BusCardResponse;
@@ -11,61 +13,81 @@ import akin.city_card.buscard.model.*;
 import akin.city_card.buscard.repository.BusCardRepository;
 import akin.city_card.buscard.repository.CardPricingRepository;
 import akin.city_card.buscard.service.abstracts.BusCardService;
+
+import akin.city_card.buscard.service.abstracts.QrCodeService;
 import akin.city_card.response.ResponseMessage;
+import akin.city_card.security.exception.UserNotFoundException;
 import akin.city_card.user.model.User;
+import akin.city_card.user.repository.UserRepository;
+import akin.city_card.wallet.exceptions.WalletNotActiveException;
+import akin.city_card.wallet.exceptions.WalletNotFoundException;
+import akin.city_card.wallet.model.Wallet;
+import akin.city_card.wallet.model.WalletStatus;
+import akin.city_card.wallet.repository.WalletRepository;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
+import com.google.zxing.BarcodeFormat;
+import com.google.zxing.WriterException;
+import com.google.zxing.client.j2se.MatrixToImageWriter;
+import com.google.zxing.common.BitMatrix;
+import com.google.zxing.qrcode.QRCodeWriter;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
+import javax.crypto.Mac;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
+import java.io.*;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyStore;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.Base64;
-import java.util.HashMap;
-import java.util.LinkedHashMap;
-import java.util.Map;
+import java.util.*;
+
+import static com.google.common.hash.Hashing.hmacSha256;
 
 @Service
+@Slf4j
 public class BusCardManager implements BusCardService {
-
-    @Autowired
-    private CardPricingRepository cardPricingRepository;
-
-    private final SecureRandom secureRandom = new SecureRandom();
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     private static final int IV_SIZE = 12;       // bytes
     private static final int TAG_BITS = 128;     // AES-GCM tag bits
     private static final String AES_GCM_TRANSFORMATION = "AES/GCM/NoPadding";
-
+    private final SecureRandom secureRandom = new SecureRandom();
+    private final ObjectMapper objectMapper = new ObjectMapper();
     private final BusCardRepository busCardRepository;
-
     // Keystore config (application.properties)
     private final String keyStorePath;
     private final String keyStorePassword;
     private final String masterKeyAlias;
+    @Autowired
+    private CardPricingRepository cardPricingRepository;
+    @Autowired
+    private QrCodeService qrCodeService;
 
+    @Autowired
+    private UserRepository userRepository;
     // masterKey cached in memory (SecretKey) — but will be loaded from keystore on startup
     private volatile SecretKey masterKey;
     @Autowired
     private AdminRepository adminRepository;
+    @Autowired
+    private WalletRepository walletRepository;
 
     public BusCardManager(
             BusCardRepository busCardRepository,
@@ -549,6 +571,169 @@ public class BusCardManager implements BusCardService {
     @Override
     public ResponseEntity<?> cardVisa(Map<String, Object> request) {
         return null;
+    }
+
+    @Override
+    public ResponseEntity<?> deleteCardBlocked(Map<String, String> request) {
+        return null;
+    }
+
+    @Override
+    public ResponseEntity<?> cardBlocked(Map<String, Object> request) {
+        return null;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public byte[] generateQrCode(String username)
+            throws UserNotFoundException, WalletNotFoundException, WalletNotActiveException,
+            CardPricingNotFoundException, InsufficientBalanceException {
+
+        // 1. validate entities
+        User user = userRepository.findByUserNumber(username).orElseThrow(UserNotFoundException::new);
+        Wallet wallet = walletRepository.findByUser(user).orElseThrow(WalletNotFoundException::new);
+        CardPricing cardPricing = cardPricingRepository.findByCardType(CardType.TAM)
+                .orElseThrow(CardPricingNotFoundException::new);
+
+        if (!WalletStatus.ACTIVE.equals(wallet.getStatus())) {
+            throw new WalletNotActiveException();
+        }
+        if (wallet.getBalance().compareTo(cardPricing.getPrice()) < 0) {
+            throw new InsufficientBalanceException();
+        }
+
+        // 2. build payload
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("v", 1);
+        payload.put("userNumber", user.getUsername());
+        payload.put("walletId", wallet.getWiban());
+        payload.put("price", cardPricing.getPrice());
+        payload.put("issuedAt", Instant.now().toEpochMilli());
+        payload.put("expiresAt", Instant.now().plusSeconds(600).toEpochMilli());
+        payload.put("nonce", UUID.randomUUID().toString());
+
+        try {
+            // serialize JSON
+            String json = objectMapper.writeValueAsString(payload);
+
+            // 3. generate HMAC signature
+            String secret = "veryStrongSecretKeyForQRCodeHmac"; // TODO: dışarıdan config'ten al
+            String signature = hmacSha256(json, secret);
+
+            // 4. build final token: base64(payload).signature
+            String token = Base64.getUrlEncoder().withoutPadding().encodeToString(json.getBytes(StandardCharsets.UTF_8))
+                    + "." + signature;
+
+            // 5. generate QR code image
+            return generateQrImageBytes(token, 400, 400);
+
+        } catch (Exception ex) {
+            ex.printStackTrace();
+            throw new RuntimeException("Unable to create signed QR", ex);
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseMessage verifyQrToken(String qrToken)
+          throws InvalidQrCodeException, ExpiredQrCodeException,
+                UserNotFoundException, WalletNotFoundException,
+                InsufficientBalanceException {
+
+            try {
+                // 1️⃣ Token parçala
+                String[] parts = qrToken.split("\\.");
+                if (parts.length != 2) {
+                    throw new InvalidQrCodeException();
+                }
+
+                String encodedPayload = parts[0];
+                String providedSignature = parts[1];
+
+                // 2️⃣ Payload decode et
+                String json = new String(Base64.getUrlDecoder().decode(encodedPayload), StandardCharsets.UTF_8);
+
+                // 3️⃣ İmza doğrula
+                String secret = "veryStrongSecretKeyForQRCodeHmac"; // generateQrCode ile aynı olmalı
+                String expectedSignature = hmacSha256(json, secret);
+
+                if (!expectedSignature.equals(providedSignature)) {
+                    throw new InvalidQrCodeException();
+                }
+
+                // 4️⃣ JSON parse et
+                Map<String, Object> payload = objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {
+                });
+
+                String userNumber = (String) payload.get("userNumber");
+                String walletId = (String) payload.get("walletId");
+                BigDecimal price = new BigDecimal(payload.get("price").toString());
+                Long expiresAt = Long.valueOf(payload.get("expiresAt").toString());
+
+                // 5️⃣ Süre dolmuş mu?
+                if (Instant.now().toEpochMilli() > expiresAt) {
+                    throw new ExpiredQrCodeException();
+                }
+
+                // 6️⃣ Kullanıcı ve cüzdan doğrula
+                User user = userRepository.findByUserNumber(userNumber)
+                        .orElseThrow(UserNotFoundException::new);
+
+                Wallet wallet = walletRepository.findByUser(user)
+                        .orElseThrow(WalletNotFoundException::new);
+
+                if (wallet.getBalance().compareTo(price) < 0) {
+                    throw new InsufficientBalanceException();
+                }
+
+                // 7️⃣ Bakiye düş
+                wallet.setBalance(wallet.getBalance().subtract(price));
+                walletRepository.save(wallet);
+
+                // 8️⃣ Log kaydı (örnek)
+                System.out.println("✅ QR başarıyla doğrulandı, bakiye düşüldü. Yeni bakiye: " + wallet.getBalance());
+
+                // 9️⃣ ResponseMessage dön
+                return new ResponseMessage(
+                        "QR doğrulandı, " + price + "₺ düşüldü. Güncel bakiye: " + wallet.getBalance(),true
+                );
+
+            } catch (IOException e) {
+                throw new InvalidQrCodeException();
+            } catch (UserNotFoundException e) {
+                throw new RuntimeException(e);
+            } catch (WalletNotFoundException e) {
+                throw new RuntimeException(e);
+            } catch (InsufficientBalanceException e) {
+                throw new RuntimeException(e);
+            } catch (ExpiredQrCodeException e) {
+                throw new RuntimeException(e);
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        }
+
+
+
+
+    // HMAC oluşturucu
+    private String hmacSha256(String data, String secret) throws Exception {
+        Mac sha256Hmac = Mac.getInstance("HmacSHA256");
+        SecretKeySpec keySpec = new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+        sha256Hmac.init(keySpec);
+        byte[] macData = sha256Hmac.doFinal(data.getBytes(StandardCharsets.UTF_8));
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(macData);
+    }
+
+
+    // helper: QR PNG byte[]
+    private byte[] generateQrImageBytes(String token, int width, int height)
+            throws WriterException, java.io.IOException {
+        QRCodeWriter qrCodeWriter = new QRCodeWriter();
+        BitMatrix bitMatrix = qrCodeWriter.encode(token, BarcodeFormat.QR_CODE, width, height);
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+        MatrixToImageWriter.writeToStream(bitMatrix, "PNG", outputStream);
+        return outputStream.toByteArray();
     }
 
 

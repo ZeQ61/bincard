@@ -1,13 +1,23 @@
 package akin.city_card.buscard.controller;
 
 import akin.city_card.admin.exceptions.AdminNotFoundException;
+import akin.city_card.bus.exceptions.InsufficientBalanceException;
 import akin.city_card.buscard.core.request.CreateCardPricingRequest;
+import akin.city_card.buscard.core.request.QrScanRequest;
 import akin.city_card.buscard.core.request.RegisterCardRequest;
+import akin.city_card.buscard.exceptions.CardPricingNotFoundException;
+import akin.city_card.buscard.exceptions.ExpiredQrCodeException;
+import akin.city_card.buscard.exceptions.InvalidQrCodeException;
 import akin.city_card.buscard.service.abstracts.BusCardService;
 import akin.city_card.response.ResponseMessage;
+import akin.city_card.security.exception.UserNotFoundException;
+import akin.city_card.wallet.exceptions.WalletNotActiveException;
+import akin.city_card.wallet.exceptions.WalletNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
@@ -88,6 +98,24 @@ public class BusCardController {
     public ResponseMessage createCardPricing(@AuthenticationPrincipal UserDetails userDetails, @RequestBody CreateCardPricingRequest createCardPricingRequest) throws AdminNotFoundException {
         return busCardService.createCardPricing(createCardPricingRequest, userDetails.getUsername());
 
+    }
+
+    @PostMapping("/generate-qr")
+    public ResponseEntity<byte[]> generateQrCode(@AuthenticationPrincipal UserDetails userDetails)
+            throws Exception {
+        String username = userDetails.getUsername();
+        byte[] qrBytes = busCardService.generateQrCode(username);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_TYPE, "image/png")
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"qrcode.png\"")
+                .body(qrBytes);
+    }
+
+    @PostMapping("/scan-qr")
+    public ResponseEntity<ResponseMessage> scanQrCode(@RequestBody QrScanRequest request) throws UserNotFoundException, InvalidQrCodeException, WalletNotFoundException, InsufficientBalanceException, ExpiredQrCodeException {
+        ResponseMessage response = busCardService.verifyQrToken(request.getQrToken());
+        return ResponseEntity.ok(response);
     }
 
 }
