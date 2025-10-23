@@ -5,19 +5,16 @@ import akin.city_card.bus.exceptions.InsufficientBalanceException;
 import akin.city_card.buscard.core.request.CreateCardPricingRequest;
 import akin.city_card.buscard.core.request.QrScanRequest;
 import akin.city_card.buscard.core.request.RegisterCardRequest;
-import akin.city_card.buscard.exceptions.CardPricingNotFoundException;
 import akin.city_card.buscard.exceptions.ExpiredQrCodeException;
 import akin.city_card.buscard.exceptions.InvalidQrCodeException;
 import akin.city_card.buscard.service.abstracts.BusCardService;
 import akin.city_card.response.ResponseMessage;
 import akin.city_card.security.exception.UserNotFoundException;
-import akin.city_card.wallet.exceptions.WalletNotActiveException;
 import akin.city_card.wallet.exceptions.WalletNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,6 +26,10 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class BusCardController {
     private final BusCardService busCardService;
+
+    public BusCardController(BusCardService busCardService) {
+        this.busCardService = busCardService;
+    }
 
     @PostMapping("/register")
     public ResponseEntity<?> registerCard(@RequestBody RegisterCardRequest req) {
