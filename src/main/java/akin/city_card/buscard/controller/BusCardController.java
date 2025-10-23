@@ -112,7 +112,7 @@ public class BusCardController {
                 .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"qrcode.png\"")
                 .body(qrBytes);
     }
-//
+//asdasd
     @PostMapping("/scan-qr")
     public ResponseEntity<ResponseMessage> scanQrCode(@RequestBody QrScanRequest request) throws UserNotFoundException, InvalidQrCodeException, WalletNotFoundException, InsufficientBalanceException, ExpiredQrCodeException {
         ResponseMessage response = busCardService.verifyQrToken(request.getQrToken());
